@@ -5,8 +5,8 @@ This repo is for using GPU to extract videos' dense optical flow fields.
 The code is an adapted version of [Yang Wang's repo](https://github.com/yangwangx/denseFlow_gpu.git) made compatible with OpenCV 3.4 (tested with OpenCV 3.4.8).  
 
 ## Interface
-Option Name | Default | Note 
-:---  :--- | :---    | :---
+Option Name  | Default | Note 
+:---         | :---    | :---
 f vidFile    | ex.avi  | filename of video
 x xFlowFile  | x       | filename prefix of flow x component
 y yFlowFile  | y       | filename prefix of flow x component
