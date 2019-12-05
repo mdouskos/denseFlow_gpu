@@ -1,12 +1,14 @@
 #include "opencv2/video/tracking.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
 #include "opencv2/highgui/highgui.hpp"
-#include "opencv2/gpu/gpu.hpp"
+#include "opencv2/core/cuda.hpp"
+#include "opencv2/cudaoptflow.hpp"
 
 #include <stdio.h>
 #include <iostream>
+using namespace std;
 using namespace cv;
-using namespace cv::gpu;
+using namespace cv::cuda;
 
 static void convertFlowToImage(const Mat &flow_x, const Mat &flow_y, Mat &img_x, Mat &img_y,
        double lowerBound, double higherBound) {
@@ -37,16 +39,16 @@ int main(int argc, char** argv){
 	// IO operation
 	const char* keys =
 		{
-			"{ f  | vidFile    | ex.avi  | filename of video }"
-			"{ x  | xFlowFile  | x       | filename prefix of flow x component }"
-			"{ y  | yFlowFile  | y       | filename prefix of flow x component }"
-			"{ i  | imgFile    | i       | filename prefix of image }"
-			"{ b  | bound      | 20      | specify the maximum (px) of optical flow }"
-			"{ t  | type       | 1       | specify the optical flow algorithm }"
-			"{ d  | device_id  | 0       | specify gpu id }"
-			"{ s  | step       | 1       | specify the step for frame sampling }"
-                        "{ h  | height     | 0       | specify the height of saved flows, 0: keep original height }"
-                        "{ w  | width      | 0       | specify the width of saved flows,  0: keep original width }"    
+			"{ f vidFile    | ex.avi  | filename of video }"
+			"{ x xFlowFile  | x       | filename prefix of flow x component }"
+			"{ y yFlowFile  | y       | filename prefix of flow x component }"
+			"{ i imgFile    | i       | filename prefix of image }"
+			"{ b bound      | 20      | specify the maximum (px) of optical flow }"
+			"{ t type       | 1       | specify the optical flow algorithm }"
+			"{ d device_id  | 0       | specify gpu id }"
+			"{ s step       | 1       | specify the step for frame sampling }"
+            "{ h height     | 0       | specify the height of saved flows, 0: keep original height }"
+            "{ w width      | 0       | specify the width of saved flows,  0: keep original width }"    
 		};
 
 	CommandLineParser cmd(argc, argv, keys);
@@ -68,13 +70,13 @@ int main(int argc, char** argv){
 	}
 
 	int frame_num = 0;
-	Mat image, prev_image, prev_grey, grey, frame, flow_x, flow_y;
-	GpuMat frame_0, frame_1, flow_u, flow_v;
+	Mat image, prev_image, prev_grey, grey, frame, flow;
+	GpuMat frame_0, frame_1, flow_gpu;
 
 	setDevice(device_id);
-	FarnebackOpticalFlow alg_farn;
-	OpticalFlowDual_TVL1_GPU alg_tvl1;
-	BroxOpticalFlow alg_brox(0.197f, 50.0f, 0.8f, 10, 77, 10);
+	Ptr<cv::cuda::FarnebackOpticalFlow> alg_farn = cv::cuda::FarnebackOpticalFlow::create();
+	Ptr<cv::cuda::OpticalFlowDual_TVL1> alg_tvl1 = cv::cuda::OpticalFlowDual_TVL1::create();
+	Ptr<cv::cuda::BroxOpticalFlow> alg_brox = cv::cuda::BroxOpticalFlow::create(0.197f, 50.0f, 0.8f, 10, 77, 10);
 
 	while(true) {
 		capture >> frame;
@@ -110,26 +112,26 @@ int main(int argc, char** argv){
                 // GPU optical flow
 		switch(type){
 		case 0:
-			alg_farn(frame_0,frame_1,flow_u,flow_v);
+			alg_farn->calc(frame_0,frame_1,flow_gpu);
 			break;
 		case 1:
-			alg_tvl1(frame_0,frame_1,flow_u,flow_v);
+			alg_tvl1->calc(frame_0,frame_1,flow_gpu);
 			break;
 		case 2:
 			GpuMat d_frame0f, d_frame1f;
 	                frame_0.convertTo(d_frame0f, CV_32F, 1.0 / 255.0);
 	                frame_1.convertTo(d_frame1f, CV_32F, 1.0 / 255.0);
-			alg_brox(d_frame0f, d_frame1f, flow_u,flow_v);
+			alg_brox->calc(d_frame0f, d_frame1f, flow_gpu);
 			break;
 		}
 
-		flow_u.download(flow_x);
-		flow_v.download(flow_y);
-
+		flow_gpu.download(flow);
+		vector<Mat1f> flow_vec;
+		split(flow,flow_vec);
 		// Output optical flow
-		Mat imgX(flow_x.size(),CV_8UC1);
-		Mat imgY(flow_y.size(),CV_8UC1);
-		convertFlowToImage(flow_x,flow_y, imgX, imgY, -bound, bound);
+		Mat imgX(flow_vec[0].size(),CV_8UC1);
+		Mat imgY(flow_vec[1].size(),CV_8UC1);
+		convertFlowToImage(flow_vec[0],flow_vec[1], imgX, imgY, -bound, bound);
 		char tmp[20];
 		sprintf(tmp,"_%06d.jpg",int(frame_num));
 
